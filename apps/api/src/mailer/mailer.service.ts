@@ -10,4 +10,9 @@ export class MailerService {
       `[stub email] Verify your FitCore account, ${to}: ${link}`,
     );
   }
+
+  sendPasswordResetEmail(to: string, token: string) {
+    const link = `http://localhost:3000/reset-password?token=${token}`;
+    this.logger.log(`[stub email] Reset your FitCore password, ${to}: ${link}`);
+  }
 }

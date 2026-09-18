@@ -15,6 +15,7 @@ import type { SignupDto } from './dto/signup.dto.js';
 const ACCESS_TOKEN_TTL = '15m';
 const REFRESH_TOKEN_TTL = '7d';
 const VERIFICATION_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
+const RESET_TOKEN_TTL_MS = 60 * 60 * 1000;
 
 type AuthUser = { id: string; name: string; email: string; role: string };
 
@@ -97,6 +98,53 @@ export class AuthService {
     }
 
     return this.buildAuthResponse(user);
+  }
+
+  async forgotPassword(email: string) {
+    const user = await this.prisma.user.findUnique({ where: { email } });
+
+    if (user) {
+      const resetToken = randomBytes(32).toString('hex');
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: {
+          resetToken,
+          resetTokenExpiresAt: new Date(Date.now() + RESET_TOKEN_TTL_MS),
+        },
+      });
+      this.mailer.sendPasswordResetEmail(user.email, resetToken);
+    }
+
+    return {
+      message: 'If that email is registered, a reset link has been sent',
+    };
+  }
+
+  async resetPassword(token: string, newPassword: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { resetToken: token },
+    });
+
+    if (!user || !user.resetTokenExpiresAt) {
+      throw new BadRequestException('Invalid reset token');
+    }
+
+    if (user.resetTokenExpiresAt < new Date()) {
+      throw new BadRequestException('Reset token has expired');
+    }
+
+    const passwordHash = await bcrypt.hash(newPassword, 10);
+
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: {
+        passwordHash,
+        resetToken: null,
+        resetTokenExpiresAt: null,
+      },
+    });
+
+    return { message: 'Password reset successfully' };
   }
 
   async refresh(refreshToken: string) {

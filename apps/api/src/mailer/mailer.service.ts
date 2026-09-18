@@ -15,4 +15,11 @@ export class MailerService {
     const link = `http://localhost:3000/reset-password?token=${token}`;
     this.logger.log(`[stub email] Reset your FitCore password, ${to}: ${link}`);
   }
+
+  sendStaffInviteEmail(to: string, token: string, role: string) {
+    const link = `http://localhost:3000/staff-onboarding?token=${token}`;
+    this.logger.log(
+      `[stub email] You've been invited to join FitCore as ${role}, ${to}: ${link}`,
+    );
+  }
 }

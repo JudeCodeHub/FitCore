@@ -11,6 +11,8 @@ import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 import { MailerService } from '../mailer/mailer.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import type { CompleteInviteDto } from './dto/complete-invite.dto.js';
+import type { InviteStaffDto } from './dto/invite-staff.dto.js';
 import type { LoginDto } from './dto/login.dto.js';
 import type { SignupDto } from './dto/signup.dto.js';
 
@@ -19,6 +21,7 @@ const REFRESH_TOKEN_TTL = '7d';
 const REFRESH_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const VERIFICATION_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
 const RESET_TOKEN_TTL_MS = 60 * 60 * 1000;
+const INVITE_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 type AuthUser = { id: string; name: string; email: string; role: string };
 
@@ -222,6 +225,84 @@ export class AuthService {
       data: { revokedAt: new Date() },
     });
     return { message: 'Logged out' };
+  }
+
+  async inviteStaff(dto: InviteStaffDto, invitedBy: string) {
+    const existingUser = await this.prisma.user.findUnique({
+      where: { email: dto.email },
+    });
+    if (existingUser) {
+      throw new ConflictException('A user with this email already exists');
+    }
+
+    // Invalidate any earlier unused invite for this email before creating
+    // a fresh one, so only one invite link is ever valid at a time.
+    await this.prisma.staffInvite.deleteMany({
+      where: { email: dto.email, usedAt: null },
+    });
+
+    const token = randomBytes(32).toString('hex');
+    await this.prisma.staffInvite.create({
+      data: {
+        email: dto.email,
+        role: dto.role,
+        token,
+        invitedBy,
+        expiresAt: new Date(Date.now() + INVITE_TOKEN_TTL_MS),
+      },
+    });
+
+    this.mailer.sendStaffInviteEmail(dto.email, token, dto.role);
+
+    return { message: 'Invite sent' };
+  }
+
+  async getInvite(token: string) {
+    const invite = await this.prisma.staffInvite.findUnique({
+      where: { token },
+    });
+
+    if (!invite || invite.usedAt || invite.expiresAt < new Date()) {
+      throw new BadRequestException('Invalid or expired invite');
+    }
+
+    return { email: invite.email, role: invite.role };
+  }
+
+  async completeInvite(dto: CompleteInviteDto, userAgent?: string) {
+    const invite = await this.prisma.staffInvite.findUnique({
+      where: { token: dto.token },
+    });
+
+    if (!invite || invite.usedAt || invite.expiresAt < new Date()) {
+      throw new BadRequestException('Invalid or expired invite');
+    }
+
+    const existingUser = await this.prisma.user.findUnique({
+      where: { email: invite.email },
+    });
+    if (existingUser) {
+      throw new ConflictException('A user with this email already exists');
+    }
+
+    const passwordHash = await bcrypt.hash(dto.password, 10);
+
+    const user = await this.prisma.user.create({
+      data: {
+        name: dto.name,
+        email: invite.email,
+        passwordHash,
+        role: invite.role,
+        emailVerified: true,
+      },
+    });
+
+    await this.prisma.staffInvite.update({
+      where: { id: invite.id },
+      data: { usedAt: new Date() },
+    });
+
+    return (await this.issueNewSession(user, userAgent)).response;
   }
 
   async listSessions(userId: string) {

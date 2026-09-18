@@ -45,3 +45,16 @@ model Session {
 
   @@index([userId])
 }
+
+model StaffInvite {
+  id        String    @id @default(cuid())
+  email     String
+  role      UserRole
+  token     String    @unique
+  invitedBy String
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([email])
+}

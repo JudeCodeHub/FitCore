@@ -12,13 +12,17 @@ import {
 } from '@nestjs/common';
 import { AuthService } from './auth.service.js';
 import { CurrentUser } from './decorators/current-user.decorator.js';
+import { Roles } from './decorators/roles.decorator.js';
+import { CompleteInviteDto } from './dto/complete-invite.dto.js';
 import { ForgotPasswordDto } from './dto/forgot-password.dto.js';
+import { InviteStaffDto } from './dto/invite-staff.dto.js';
 import { LoginDto } from './dto/login.dto.js';
 import { RefreshDto } from './dto/refresh.dto.js';
 import { ResetPasswordDto } from './dto/reset-password.dto.js';
 import { SignupDto } from './dto/signup.dto.js';
 import { VerifyEmailDto } from './dto/verify-email.dto.js';
 import { JwtAuthGuard, type RequestUser } from './guards/jwt-auth.guard.js';
+import { RolesGuard } from './guards/roles.guard.js';
 
 @Controller('auth')
 export class AuthController {
@@ -87,5 +91,27 @@ export class AuthController {
     @Param('id') sessionId: string,
   ) {
     return this.authService.revokeSession(user.sub, sessionId);
+  }
+
+  @Post('invite-staff')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('ADMIN')
+  @HttpCode(HttpStatus.OK)
+  inviteStaff(@Body() dto: InviteStaffDto, @CurrentUser() user: RequestUser) {
+    return this.authService.inviteStaff(dto, user.sub);
+  }
+
+  @Get('invite/:token')
+  getInvite(@Param('token') token: string) {
+    return this.authService.getInvite(token);
+  }
+
+  @Post('complete-invite')
+  @HttpCode(HttpStatus.OK)
+  completeInvite(
+    @Body() dto: CompleteInviteDto,
+    @Headers('user-agent') userAgent?: string,
+  ) {
+    return this.authService.completeInvite(dto, userAgent);
   }
 }

@@ -1,0 +1,14 @@
+node_modules/
+.env
+.env.local
+*.log
+dist/
+build/
+.next/
+coverage/
+.DS_Store
+*.tsbuildinfo
+
+# Planning docs — kept local, not tracked in git
+FitCore-Project-Spec.md
+BUILD_CHECKLIST.md

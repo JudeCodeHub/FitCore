@@ -1,8 +1,10 @@
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
+  NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
@@ -14,10 +16,15 @@ import type { SignupDto } from './dto/signup.dto.js';
 
 const ACCESS_TOKEN_TTL = '15m';
 const REFRESH_TOKEN_TTL = '7d';
+const REFRESH_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const VERIFICATION_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
 const RESET_TOKEN_TTL_MS = 60 * 60 * 1000;
 
 type AuthUser = { id: string; name: string; email: string; role: string };
+
+function hashToken(token: string): string {
+  return createHash('sha256').update(token).digest('hex');
+}
 
 @Injectable()
 export class AuthService {
@@ -27,7 +34,7 @@ export class AuthService {
     private readonly mailer: MailerService,
   ) {}
 
-  async signup(dto: SignupDto) {
+  async signup(dto: SignupDto, userAgent?: string) {
     const existing = await this.prisma.user.findUnique({
       where: { email: dto.email },
     });
@@ -53,7 +60,7 @@ export class AuthService {
 
     this.mailer.sendVerificationEmail(user.email, verificationToken);
 
-    return this.buildAuthResponse(user);
+    return (await this.issueNewSession(user, userAgent)).response;
   }
 
   async verifyEmail(token: string) {
@@ -81,7 +88,7 @@ export class AuthService {
     return { message: 'Email verified successfully' };
   }
 
-  async login(dto: LoginDto) {
+  async login(dto: LoginDto, userAgent?: string) {
     const user = await this.prisma.user.findUnique({
       where: { email: dto.email },
     });
@@ -97,7 +104,7 @@ export class AuthService {
       throw new UnauthorizedException('Invalid email or password');
     }
 
-    return this.buildAuthResponse(user);
+    return (await this.issueNewSession(user, userAgent)).response;
   }
 
   async forgotPassword(email: string) {
@@ -144,31 +151,120 @@ export class AuthService {
       },
     });
 
+    // Password changed — kill every existing session so a leaked/old
+    // refresh token can't survive a password reset.
+    await this.prisma.session.updateMany({
+      where: { userId: user.id, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+
     return { message: 'Password reset successfully' };
   }
 
-  async refresh(refreshToken: string) {
+  async refresh(refreshToken: string, userAgent?: string) {
+    let payload: { sub: string };
     try {
-      const payload = await this.jwt.verifyAsync<{ sub: string }>(
-        refreshToken,
-        { secret: process.env.JWT_REFRESH_SECRET },
-      );
-
-      const user = await this.prisma.user.findUnique({
-        where: { id: payload.sub },
+      payload = await this.jwt.verifyAsync<{ sub: string }>(refreshToken, {
+        secret: process.env.JWT_REFRESH_SECRET,
       });
-      if (!user) {
-        throw new UnauthorizedException('User no longer exists');
-      }
-
-      return this.buildAuthResponse(user);
     } catch {
       throw new UnauthorizedException('Invalid or expired refresh token');
     }
+
+    const tokenHash = hashToken(refreshToken);
+    const session = await this.prisma.session.findUnique({
+      where: { tokenHash },
+    });
+
+    if (!session) {
+      throw new UnauthorizedException('Session not found');
+    }
+
+    if (session.revokedAt) {
+      // This token was already rotated away once before — someone is
+      // reusing an old, retired refresh token. That means it was copied
+      // by someone other than its rightful owner. Kill every session for
+      // this user so the thief (and the real owner) both get logged out.
+      await this.prisma.session.updateMany({
+        where: { userId: session.userId, revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
+      throw new ForbiddenException(
+        'Refresh token reuse detected — all sessions revoked',
+      );
+    }
+
+    if (session.expiresAt < new Date()) {
+      throw new UnauthorizedException('Session has expired');
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: payload.sub },
+    });
+    if (!user) {
+      throw new UnauthorizedException('User no longer exists');
+    }
+
+    const result = await this.issueNewSession(user, userAgent);
+
+    await this.prisma.session.update({
+      where: { id: session.id },
+      data: { revokedAt: new Date(), replacedById: result.sessionId },
+    });
+
+    return result.response;
   }
 
-  private async buildAuthResponse(user: AuthUser) {
-    const payload = { sub: user.id, email: user.email, role: user.role };
+  async logout(refreshToken: string) {
+    const tokenHash = hashToken(refreshToken);
+    await this.prisma.session.updateMany({
+      where: { tokenHash, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+    return { message: 'Logged out' };
+  }
+
+  async listSessions(userId: string) {
+    const sessions = await this.prisma.session.findMany({
+      where: { userId, revokedAt: null, expiresAt: { gt: new Date() } },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        userAgent: true,
+        createdAt: true,
+        expiresAt: true,
+      },
+    });
+    return sessions;
+  }
+
+  async revokeSession(userId: string, sessionId: string) {
+    const session = await this.prisma.session.findUnique({
+      where: { id: sessionId },
+    });
+
+    if (!session || session.userId !== userId) {
+      throw new NotFoundException('Session not found');
+    }
+
+    await this.prisma.session.update({
+      where: { id: sessionId },
+      data: { revokedAt: new Date() },
+    });
+
+    return { message: 'Session revoked' };
+  }
+
+  private async issueNewSession(
+    user: AuthUser,
+    userAgent: string | undefined,
+  ) {
+    const payload = {
+      sub: user.id,
+      email: user.email,
+      role: user.role,
+      jti: randomBytes(16).toString('hex'),
+    };
 
     const [accessToken, refreshToken] = await Promise.all([
       this.jwt.signAsync(payload, {
@@ -181,7 +277,16 @@ export class AuthService {
       }),
     ]);
 
-    return {
+    const session = await this.prisma.session.create({
+      data: {
+        userId: user.id,
+        tokenHash: hashToken(refreshToken),
+        userAgent,
+        expiresAt: new Date(Date.now() + REFRESH_TOKEN_TTL_MS),
+      },
+    });
+
+    const response = {
       user: {
         id: user.id,
         name: user.name,
@@ -191,5 +296,7 @@ export class AuthService {
       accessToken,
       refreshToken,
     };
+
+    return { response, sessionId: session.id };
   }
 }

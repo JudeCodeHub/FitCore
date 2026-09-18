@@ -1,16 +1,20 @@
+import { randomBytes } from 'node:crypto';
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
+import { MailerService } from '../mailer/mailer.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { LoginDto } from './dto/login.dto.js';
 import type { SignupDto } from './dto/signup.dto.js';
 
 const ACCESS_TOKEN_TTL = '15m';
 const REFRESH_TOKEN_TTL = '7d';
+const VERIFICATION_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
 
 type AuthUser = { id: string; name: string; email: string; role: string };
 
@@ -19,6 +23,7 @@ export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
+    private readonly mailer: MailerService,
   ) {}
 
   async signup(dto: SignupDto) {
@@ -30,6 +35,7 @@ export class AuthService {
     }
 
     const passwordHash = await bcrypt.hash(dto.password, 10);
+    const verificationToken = randomBytes(32).toString('hex');
 
     const user = await this.prisma.user.create({
       data: {
@@ -37,10 +43,41 @@ export class AuthService {
         email: dto.email,
         passwordHash,
         role: 'MEMBER',
+        verificationToken,
+        verificationTokenExpiresAt: new Date(
+          Date.now() + VERIFICATION_TOKEN_TTL_MS,
+        ),
       },
     });
 
+    this.mailer.sendVerificationEmail(user.email, verificationToken);
+
     return this.buildAuthResponse(user);
+  }
+
+  async verifyEmail(token: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { verificationToken: token },
+    });
+
+    if (!user || !user.verificationTokenExpiresAt) {
+      throw new BadRequestException('Invalid verification token');
+    }
+
+    if (user.verificationTokenExpiresAt < new Date()) {
+      throw new BadRequestException('Verification token has expired');
+    }
+
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: {
+        emailVerified: true,
+        verificationToken: null,
+        verificationTokenExpiresAt: null,
+      },
+    });
+
+    return { message: 'Email verified successfully' };
   }
 
   async login(dto: LoginDto) {

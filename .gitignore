@@ -9,6 +9,21 @@ coverage/
 .DS_Store
 *.tsbuildinfo
 
+apps/api/src/generated/
+
+# Auto-generated agent-skill sync files (unused, from Prisma/shadcn tooling)
+apps/*/.agents/
+apps/*/.claude/
+apps/*/.windsurf/
+apps/*/skills-lock.json
+apps/*/AGENTS.md
+apps/*/CLAUDE.md
+
+# Only one README + one .gitignore for the whole project (this file, root README.md).
+# Per-app README/.gitignore files created by scaffolding tools are not tracked.
+apps/*/README.md
+apps/*/.gitignore
+
 # Planning docs — kept local, not tracked in git
 FitCore-Project-Spec.md
 BUILD_CHECKLIST.md

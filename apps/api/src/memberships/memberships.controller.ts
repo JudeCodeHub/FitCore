@@ -12,6 +12,7 @@ import { Roles } from '../auth/decorators/roles.decorator.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { RolesGuard } from '../auth/guards/roles.guard.js';
 import { CreateMembershipDto } from './dto/create-membership.dto.js';
+import { FreezeMembershipDto } from './dto/freeze-membership.dto.js';
 import { MembershipsService } from './memberships.service.js';
 
 @Controller('memberships')
@@ -41,10 +42,15 @@ export class MembershipsController {
     return this.membershipsService.activate(id);
   }
 
+  @Get(':id/freeze-status')
+  freezeStatus(@Param('id') id: string) {
+    return this.membershipsService.getFreezeStatus(id);
+  }
+
   @Post(':id/freeze')
   @HttpCode(HttpStatus.OK)
-  freeze(@Param('id') id: string) {
-    return this.membershipsService.freeze(id);
+  freeze(@Param('id') id: string, @Body() dto: FreezeMembershipDto) {
+    return this.membershipsService.freeze(id, dto);
   }
 
   @Post(':id/unfreeze')

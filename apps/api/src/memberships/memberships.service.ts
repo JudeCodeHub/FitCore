@@ -5,6 +5,10 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { CreateMembershipDto } from './dto/create-membership.dto.js';
+import type { FreezeMembershipDto } from './dto/freeze-membership.dto.js';
+
+const MAX_FREEZE_DAYS_PER_YEAR = 30;
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 type MembershipStatus =
   | 'PENDING'
@@ -86,12 +90,107 @@ export class MembershipsService {
     return this.transition(id, 'activate');
   }
 
-  freeze(id: string) {
-    return this.transition(id, 'freeze');
+  async freeze(id: string, dto: FreezeMembershipDto) {
+    const membership = await this.findOne(id);
+    const from = membership.status as MembershipStatus;
+
+    if (!ACTIONS.freeze.from.includes(from)) {
+      throw new BadRequestException(
+        `Cannot freeze a membership that is currently ${from}`,
+      );
+    }
+
+    const now = new Date();
+    const until = new Date(dto.until);
+    if (until <= now) {
+      throw new BadRequestException('Freeze end date must be in the future');
+    }
+
+    const requestedDays = Math.ceil(
+      (until.getTime() - now.getTime()) / MS_PER_DAY,
+    );
+    const usedDays = await this.getFreezeDaysUsedThisYear(id, now);
+    const remainingDays = MAX_FREEZE_DAYS_PER_YEAR - usedDays;
+
+    if (requestedDays > remainingDays) {
+      throw new BadRequestException(
+        `Only ${remainingDays} freeze day(s) left this year (requested ${requestedDays})`,
+      );
+    }
+
+    await this.prisma.membershipFreeze.create({
+      data: { membershipId: id, startedAt: now },
+    });
+
+    return this.prisma.membership.update({
+      where: { id },
+      data: { status: 'FROZEN', frozenUntil: until },
+    });
   }
 
-  unfreeze(id: string) {
-    return this.transition(id, 'unfreeze');
+  async unfreeze(id: string) {
+    const membership = await this.findOne(id);
+    const from = membership.status as MembershipStatus;
+
+    if (!ACTIONS.unfreeze.from.includes(from)) {
+      throw new BadRequestException(
+        `Cannot unfreeze a membership that is currently ${from}`,
+      );
+    }
+
+    const openFreeze = await this.prisma.membershipFreeze.findFirst({
+      where: { membershipId: id, endedAt: null },
+      orderBy: { startedAt: 'desc' },
+    });
+
+    if (openFreeze) {
+      await this.prisma.membershipFreeze.update({
+        where: { id: openFreeze.id },
+        data: { endedAt: new Date() },
+      });
+    }
+
+    return this.prisma.membership.update({
+      where: { id },
+      data: { status: 'ACTIVE', frozenUntil: null },
+    });
+  }
+
+  /** Total days used across completed freezes that started in the given
+   * date's calendar year. A freeze spanning a year boundary is counted
+   * entirely toward the year it started in — a deliberate simplification. */
+  async getFreezeDaysUsedThisYear(
+    membershipId: string,
+    reference: Date,
+  ): Promise<number> {
+    const yearStart = new Date(reference.getFullYear(), 0, 1);
+    const yearEnd = new Date(reference.getFullYear() + 1, 0, 1);
+
+    const freezes = await this.prisma.membershipFreeze.findMany({
+      where: {
+        membershipId,
+        endedAt: { not: null },
+        startedAt: { gte: yearStart, lt: yearEnd },
+      },
+    });
+
+    return freezes.reduce((sum, f) => {
+      const days = Math.ceil(
+        (f.endedAt!.getTime() - f.startedAt.getTime()) / MS_PER_DAY,
+      );
+      return sum + days;
+    }, 0);
+  }
+
+  async getFreezeStatus(id: string) {
+    await this.findOne(id);
+    const now = new Date();
+    const usedDays = await this.getFreezeDaysUsedThisYear(id, now);
+    return {
+      maxDaysPerYear: MAX_FREEZE_DAYS_PER_YEAR,
+      usedDays,
+      remainingDays: MAX_FREEZE_DAYS_PER_YEAR - usedDays,
+    };
   }
 
   cancel(id: string) {

@@ -32,6 +32,8 @@ model User {
   sessions                    Session[]
   memberships                 Membership[]
   dependentOf                 MembershipDependent?
+  taughtClasses               Class[]
+  bookings                    Booking[]
 }
 
 model Session {
@@ -131,4 +133,42 @@ model MembershipFreeze {
   createdAt    DateTime   @default(now())
 
   @@index([membershipId])
+}
+
+model Class {
+  id             String    @id @default(cuid())
+  name           String
+  trainerId      String
+  trainer        User      @relation(fields: [trainerId], references: [id])
+  capacity       Int
+  startTime      DateTime
+  endTime        DateTime
+  /// iCal-style rule (e.g. "FREQ=WEEKLY;BYDAY=MO,WE,FR") for the recurring
+  /// class template generator; null means a one-off session.
+  recurrenceRule String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  bookings       Booking[]
+
+  @@index([trainerId])
+}
+
+enum BookingStatus {
+  BOOKED
+  WAITLISTED
+  CANCELLED
+}
+
+model Booking {
+  id          String        @id @default(cuid())
+  classId     String
+  class       Class         @relation(fields: [classId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status      BookingStatus @default(BOOKED)
+  bookedAt    DateTime      @default(now())
+  cancelledAt DateTime?
+
+  @@index([classId])
+  @@index([userId])
 }

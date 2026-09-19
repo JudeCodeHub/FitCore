@@ -11,6 +11,7 @@ import {
 import { Roles } from '../auth/decorators/roles.decorator.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { RolesGuard } from '../auth/guards/roles.guard.js';
+import { ChangePlanDto } from './dto/change-plan.dto.js';
 import { CreateMembershipDto } from './dto/create-membership.dto.js';
 import { FreezeMembershipDto } from './dto/freeze-membership.dto.js';
 import { MembershipsService } from './memberships.service.js';
@@ -57,6 +58,12 @@ export class MembershipsController {
   @HttpCode(HttpStatus.OK)
   unfreeze(@Param('id') id: string) {
     return this.membershipsService.unfreeze(id);
+  }
+
+  @Post(':id/change-plan')
+  @HttpCode(HttpStatus.OK)
+  changePlan(@Param('id') id: string, @Body() dto: ChangePlanDto) {
+    return this.membershipsService.changePlan(id, dto);
   }
 
   @Post(':id/cancel')

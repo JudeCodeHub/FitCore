@@ -4,11 +4,16 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
+import type { ChangePlanDto } from './dto/change-plan.dto.js';
 import type { CreateMembershipDto } from './dto/create-membership.dto.js';
 import type { FreezeMembershipDto } from './dto/freeze-membership.dto.js';
 
 const MAX_FREEZE_DAYS_PER_YEAR = 30;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+function round2(amount: number): number {
+  return Math.round(amount * 100) / 100;
+}
 
 type MembershipStatus =
   | 'PENDING'
@@ -190,6 +195,83 @@ export class MembershipsService {
       maxDaysPerYear: MAX_FREEZE_DAYS_PER_YEAR,
       usedDays,
       remainingDays: MAX_FREEZE_DAYS_PER_YEAR - usedDays,
+    };
+  }
+
+  /** Switches a membership to a different plan mid-cycle, prorating the
+   * price difference for the remaining days of the CURRENT billing cycle.
+   * The cycle's start/end dates don't change — only the plan does; the new
+   * plan's own duration takes effect starting from the next renewal
+   * (handled once billing/Stripe exists in a later phase). This only
+   * calculates and returns the proration amount — it doesn't charge or
+   * credit anything yet, since there's no payment system wired up. */
+  async changePlan(id: string, dto: ChangePlanDto) {
+    const membership = await this.findOne(id);
+
+    if (membership.status !== 'ACTIVE') {
+      throw new BadRequestException(
+        `Cannot change plan on a membership that is currently ${membership.status}`,
+      );
+    }
+
+    if (dto.newPlanId === membership.planId) {
+      throw new BadRequestException('Membership is already on this plan');
+    }
+
+    const newPlan = await this.prisma.plan.findUnique({
+      where: { id: dto.newPlanId },
+    });
+    if (!newPlan) throw new NotFoundException('Plan not found');
+    if (!newPlan.isActive) {
+      throw new BadRequestException('Cannot switch to an inactive plan');
+    }
+
+    const now = new Date();
+    const cycleStart = membership.startDate;
+    const cycleEnd = membership.endDate;
+    const totalCycleDays = Math.max(
+      1,
+      Math.round((cycleEnd.getTime() - cycleStart.getTime()) / MS_PER_DAY),
+    );
+    const remainingDays = Math.min(
+      totalCycleDays,
+      Math.max(0, Math.ceil((cycleEnd.getTime() - now.getTime()) / MS_PER_DAY)),
+    );
+
+    const oldPrice = Number(membership.plan.price);
+    const newPrice = Number(newPlan.price);
+
+    const unusedCredit = round2((oldPrice / totalCycleDays) * remainingDays);
+    const newPlanCharge = round2((newPrice / totalCycleDays) * remainingDays);
+    const netAmount = round2(newPlanCharge - unusedCredit);
+
+    const updated = await this.prisma.membership.update({
+      where: { id },
+      data: { planId: dto.newPlanId },
+      include: {
+        plan: true,
+        user: { select: { id: true, name: true, email: true } },
+      },
+    });
+
+    return {
+      membership: updated,
+      proration: {
+        cycleStart,
+        cycleEnd,
+        totalCycleDays,
+        remainingDays,
+        oldPlan: {
+          id: membership.plan.id,
+          name: membership.plan.name,
+          price: oldPrice,
+        },
+        newPlan: { id: newPlan.id, name: newPlan.name, price: newPrice },
+        unusedCredit,
+        newPlanCharge,
+        netAmount,
+        direction: netAmount > 0 ? 'CHARGE' : netAmount < 0 ? 'CREDIT' : 'NONE',
+      },
     };
   }
 

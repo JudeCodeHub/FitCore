@@ -15,21 +15,22 @@ enum UserRole {
 }
 
 model User {
-  id                          String    @id @default(cuid())
+  id                          String       @id @default(cuid())
   role                        UserRole
   name                        String
-  email                       String    @unique
+  email                       String       @unique
   passwordHash                String
   phone                       String?
-  qrCodeId                    String    @unique @default(cuid())
-  emailVerified               Boolean   @default(false)
-  verificationToken           String?   @unique
+  qrCodeId                    String       @unique @default(cuid())
+  emailVerified               Boolean      @default(false)
+  verificationToken           String?      @unique
   verificationTokenExpiresAt  DateTime?
-  resetToken                  String?   @unique
+  resetToken                  String?      @unique
   resetTokenExpiresAt         DateTime?
-  createdAt                   DateTime  @default(now())
-  updatedAt                   DateTime  @updatedAt
+  createdAt                   DateTime     @default(now())
+  updatedAt                   DateTime     @updatedAt
   sessions                    Session[]
+  memberships                 Membership[]
 }
 
 model Session {
@@ -57,4 +58,47 @@ model StaffInvite {
   createdAt DateTime  @default(now())
 
   @@index([email])
+}
+
+enum PlanDuration {
+  MONTHLY
+  QUARTERLY
+  ANNUAL
+}
+
+model Plan {
+  id          String       @id @default(cuid())
+  name        String
+  price       Decimal      @db.Decimal(10, 2)
+  duration    PlanDuration
+  features    String[]
+  isActive    Boolean      @default(true)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  memberships Membership[]
+}
+
+enum MembershipStatus {
+  ACTIVE
+  FROZEN
+  EXPIRED
+  CANCELLED
+  PENDING
+}
+
+model Membership {
+  id          String           @id @default(cuid())
+  userId      String
+  user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  planId      String
+  plan        Plan             @relation(fields: [planId], references: [id])
+  status      MembershipStatus @default(PENDING)
+  startDate   DateTime
+  endDate     DateTime
+  frozenUntil DateTime?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  @@index([userId])
+  @@index([planId])
 }

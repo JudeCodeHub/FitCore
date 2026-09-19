@@ -65,6 +65,44 @@ export class MembershipsService {
     });
   }
 
+  /** What a logged-in user sees as "my membership" — either one they own,
+   * or (if they have none) one they're linked to as a dependent. */
+  async getMyMembership(userId: string) {
+    const live = await this.prisma.membership.findFirst({
+      where: { userId, status: { in: ['ACTIVE', 'FROZEN', 'PENDING'] } },
+      include: { plan: true },
+      orderBy: { createdAt: 'desc' },
+    });
+    const owned =
+      live ??
+      (await this.prisma.membership.findFirst({
+        where: { userId },
+        include: { plan: true },
+        orderBy: { createdAt: 'desc' },
+      }));
+
+    if (owned) {
+      return { membership: owned, isDependent: false, owner: null };
+    }
+
+    const dependentLink = await this.prisma.membershipDependent.findUnique({
+      where: { userId },
+      include: {
+        membership: {
+          include: {
+            plan: true,
+            user: { select: { id: true, name: true, email: true } },
+          },
+        },
+      },
+    });
+
+    if (!dependentLink) return null;
+
+    const { user: owner, ...membership } = dependentLink.membership;
+    return { membership, isDependent: true, owner };
+  }
+
   async findOne(id: string) {
     const membership = await this.prisma.membership.findUnique({
       where: { id },

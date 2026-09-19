@@ -28,6 +28,7 @@ export class PlansService {
         price: dto.price,
         duration: dto.duration,
         features: dto.features,
+        maxMembers: dto.maxMembers,
       },
     });
   }

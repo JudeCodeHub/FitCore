@@ -31,6 +31,7 @@ model User {
   updatedAt                   DateTime     @updatedAt
   sessions                    Session[]
   memberships                 Membership[]
+  dependentOf                 MembershipDependent?
 }
 
 model Session {
@@ -72,6 +73,8 @@ model Plan {
   price       Decimal      @db.Decimal(10, 2)
   duration    PlanDuration
   features    String[]
+  /// Total people this plan covers, owner included. 1 = individual plan.
+  maxMembers  Int          @default(1)
   isActive    Boolean      @default(true)
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
@@ -87,21 +90,36 @@ enum MembershipStatus {
 }
 
 model Membership {
-  id          String              @id @default(cuid())
+  id          String               @id @default(cuid())
   userId      String
-  user        User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user        User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
   planId      String
-  plan        Plan                @relation(fields: [planId], references: [id])
-  status      MembershipStatus    @default(PENDING)
+  plan        Plan                 @relation(fields: [planId], references: [id])
+  status      MembershipStatus     @default(PENDING)
   startDate   DateTime
   endDate     DateTime
   frozenUntil DateTime?
-  createdAt   DateTime            @default(now())
-  updatedAt   DateTime            @updatedAt
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
   freezes     MembershipFreeze[]
+  dependents  MembershipDependent[]
 
   @@index([userId])
   @@index([planId])
+}
+
+/// Another user linked under an owner's membership (family/group plan).
+/// The dependent doesn't have their own separate Membership — they ride
+/// on the owner's, up to the owner's plan.maxMembers.
+model MembershipDependent {
+  id           String     @id @default(cuid())
+  membershipId String
+  membership   Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  userId       String     @unique
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  addedAt      DateTime   @default(now())
+
+  @@index([membershipId])
 }
 
 model MembershipFreeze {

@@ -2,7 +2,9 @@ import {
   ArrayMaxSize,
   IsArray,
   IsIn,
+  IsInt,
   IsNumber,
+  IsOptional,
   IsString,
   Min,
   MinLength,
@@ -26,4 +28,10 @@ export class CreatePlanDto {
   @IsString({ each: true })
   @ArrayMaxSize(20)
   features!: string[];
+
+  /** Total people this plan covers, owner included. Omit for an individual (1) plan. */
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  maxMembers?: number;
 }

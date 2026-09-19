@@ -4,6 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
+import type { AddDependentDto } from './dto/add-dependent.dto.js';
 import type { ChangePlanDto } from './dto/change-plan.dto.js';
 import type { CreateMembershipDto } from './dto/create-membership.dto.js';
 import type { FreezeMembershipDto } from './dto/freeze-membership.dto.js';
@@ -39,6 +40,8 @@ const ACTIONS: Record<
   cancel: { from: ['PENDING', 'ACTIVE', 'FROZEN'], to: 'CANCELLED' },
   expire: { from: ['ACTIVE', 'FROZEN'], to: 'EXPIRED' },
 };
+
+const DEPENDENT_MANAGEABLE_STATUSES: MembershipStatus[] = ['ACTIVE', 'FROZEN'];
 
 function addDuration(
   date: Date,
@@ -273,6 +276,79 @@ export class MembershipsService {
         direction: netAmount > 0 ? 'CHARGE' : netAmount < 0 ? 'CREDIT' : 'NONE',
       },
     };
+  }
+
+  async listDependents(id: string) {
+    await this.findOne(id);
+    return this.prisma.membershipDependent.findMany({
+      where: { membershipId: id },
+      include: { user: { select: { id: true, name: true, email: true } } },
+      orderBy: { addedAt: 'asc' },
+    });
+  }
+
+  /** Links an existing user under this membership's owner (family/group
+   * plan), up to the plan's maxMembers (which includes the owner, so a
+   * plan with maxMembers=4 allows up to 3 dependents). */
+  async addDependent(id: string, dto: AddDependentDto) {
+    const membership = await this.findOne(id);
+
+    if (!DEPENDENT_MANAGEABLE_STATUSES.includes(membership.status)) {
+      throw new BadRequestException(
+        `Cannot add a dependent to a membership that is currently ${membership.status}`,
+      );
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { email: dto.email },
+    });
+    if (!user) {
+      throw new NotFoundException('No user found with that email');
+    }
+
+    if (user.id === membership.userId) {
+      throw new BadRequestException(
+        'The membership owner cannot be added as their own dependent',
+      );
+    }
+
+    const existingLink = await this.prisma.membershipDependent.findUnique({
+      where: { userId: user.id },
+    });
+    if (existingLink) {
+      throw new BadRequestException(
+        existingLink.membershipId === id
+          ? 'This user is already linked to this membership'
+          : 'This user is already linked to a different membership',
+      );
+    }
+
+    const dependentCount = await this.prisma.membershipDependent.count({
+      where: { membershipId: id },
+    });
+    const maxDependents = membership.plan.maxMembers - 1;
+    if (dependentCount >= maxDependents) {
+      throw new BadRequestException(
+        `This plan supports up to ${membership.plan.maxMembers} member(s) total — no room for another dependent`,
+      );
+    }
+
+    return this.prisma.membershipDependent.create({
+      data: { membershipId: id, userId: user.id },
+      include: { user: { select: { id: true, name: true, email: true } } },
+    });
+  }
+
+  async removeDependent(id: string, userId: string) {
+    const link = await this.prisma.membershipDependent.findUnique({
+      where: { userId },
+    });
+    if (!link || link.membershipId !== id) {
+      throw new NotFoundException('This user is not a dependent on this membership');
+    }
+
+    await this.prisma.membershipDependent.delete({ where: { userId } });
+    return { message: 'Dependent removed' };
   }
 
   cancel(id: string) {

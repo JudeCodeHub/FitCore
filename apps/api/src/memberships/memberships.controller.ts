@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
@@ -11,6 +12,7 @@ import {
 import { Roles } from '../auth/decorators/roles.decorator.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { RolesGuard } from '../auth/guards/roles.guard.js';
+import { AddDependentDto } from './dto/add-dependent.dto.js';
 import { ChangePlanDto } from './dto/change-plan.dto.js';
 import { CreateMembershipDto } from './dto/create-membership.dto.js';
 import { FreezeMembershipDto } from './dto/freeze-membership.dto.js';
@@ -64,6 +66,25 @@ export class MembershipsController {
   @HttpCode(HttpStatus.OK)
   changePlan(@Param('id') id: string, @Body() dto: ChangePlanDto) {
     return this.membershipsService.changePlan(id, dto);
+  }
+
+  @Get(':id/dependents')
+  listDependents(@Param('id') id: string) {
+    return this.membershipsService.listDependents(id);
+  }
+
+  @Post(':id/dependents')
+  addDependent(@Param('id') id: string, @Body() dto: AddDependentDto) {
+    return this.membershipsService.addDependent(id, dto);
+  }
+
+  @Delete(':id/dependents/:userId')
+  @HttpCode(HttpStatus.OK)
+  removeDependent(
+    @Param('id') id: string,
+    @Param('userId') userId: string,
+  ) {
+    return this.membershipsService.removeDependent(id, userId);
   }
 
   @Post(':id/cancel')

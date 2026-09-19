@@ -6,6 +6,7 @@ import { useState, type FormEvent } from "react";
 import { AuthSplitLayout } from "@/modules/auth/components/auth-split-layout";
 import { ApiError } from "@/shared/api-client/http";
 import { useAuth } from "@/shared/auth/auth-context";
+import { ROLE_HOME } from "@/lib/nav-config";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,8 +27,8 @@ export function SignupPage() {
     setError(null);
     setIsSubmitting(true);
     try {
-      await signup(name, email, password);
-      router.push("/");
+      const user = await signup(name, email, password);
+      router.push(ROLE_HOME[user.role]);
     } catch (err) {
       setError(
         err instanceof ApiError ? err.message : "Something went wrong",

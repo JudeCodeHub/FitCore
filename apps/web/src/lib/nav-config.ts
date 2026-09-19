@@ -1,4 +1,6 @@
-export type UserRole = "ADMIN" | "TRAINER" | "FRONT_DESK" | "MEMBER";
+import type { UserRole } from "@/shared/auth/types";
+
+export type { UserRole };
 
 export type NavItem = {
   label: string;
@@ -40,4 +42,11 @@ export const ROLE_LABEL: Record<UserRole, string> = {
   TRAINER: "Trainer",
   FRONT_DESK: "Front Desk",
   MEMBER: "Member",
+};
+
+export const ROLE_HOME: Record<UserRole, string> = {
+  ADMIN: "/admin",
+  TRAINER: "/trainer",
+  FRONT_DESK: "/front-desk",
+  MEMBER: "/member",
 };

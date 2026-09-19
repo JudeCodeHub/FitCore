@@ -22,8 +22,8 @@ type AuthStatus = "loading" | "authenticated" | "unauthenticated";
 export interface IAuthContextValue {
   user: IUser | null;
   status: AuthStatus;
-  login: (email: string, password: string) => Promise<void>;
-  signup: (name: string, email: string, password: string) => Promise<void>;
+  login: (email: string, password: string) => Promise<IUser>;
+  signup: (name: string, email: string, password: string) => Promise<IUser>;
   logout: () => Promise<void>;
 }
 
@@ -52,6 +52,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setTokens(result);
     setUser(result.user);
     setStatus("authenticated");
+    return result.user;
   }, []);
 
   const signup = useCallback(
@@ -60,6 +61,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setTokens(result);
       setUser(result.user);
       setStatus("authenticated");
+      return result.user;
     },
     [],
   );

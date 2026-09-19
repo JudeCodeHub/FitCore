@@ -6,7 +6,7 @@ export default function TrainerLayout({
   children: React.ReactNode;
 }) {
   return (
-    <RoleShell role="TRAINER" activeHref="/trainer">
+    <RoleShell role="TRAINER">
       {children}
     </RoleShell>
   );

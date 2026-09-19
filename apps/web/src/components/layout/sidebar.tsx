@@ -2,6 +2,15 @@ import Link from "next/link";
 import { NAV_BY_ROLE, ROLE_LABEL, type UserRole } from "@/lib/nav-config";
 import { cn } from "@/lib/utils";
 
+/** Picks the most specific nav item matching the current path (e.g. on
+ * "/admin/plans/5", "/admin/plans" wins over the shorter "/admin"). */
+function findActiveHref(pathname: string, hrefs: string[]): string | undefined {
+  const matches = hrefs.filter(
+    (href) => pathname === href || pathname.startsWith(`${href}/`),
+  );
+  return matches.sort((a, b) => b.length - a.length)[0];
+}
+
 export function Sidebar({
   role,
   activeHref,
@@ -12,6 +21,9 @@ export function Sidebar({
   className?: string;
 }) {
   const items = NAV_BY_ROLE[role];
+  const resolvedActiveHref = activeHref
+    ? findActiveHref(activeHref, items.map((item) => item.href))
+    : undefined;
 
   return (
     <aside
@@ -32,7 +44,7 @@ export function Sidebar({
             href={item.href}
             className={cn(
               "block rounded-md px-3 py-2 text-sm font-medium transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-              activeHref === item.href &&
+              resolvedActiveHref === item.href &&
                 "bg-sidebar-accent text-sidebar-accent-foreground",
             )}
           >

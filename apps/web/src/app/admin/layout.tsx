@@ -6,7 +6,7 @@ export default function AdminLayout({
   children: React.ReactNode;
 }) {
   return (
-    <RoleShell role="ADMIN" activeHref="/admin">
+    <RoleShell role="ADMIN">
       {children}
     </RoleShell>
   );

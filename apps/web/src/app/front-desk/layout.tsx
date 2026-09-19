@@ -6,7 +6,7 @@ export default function FrontDeskLayout({
   children: React.ReactNode;
 }) {
   return (
-    <RoleShell role="FRONT_DESK" activeHref="/front-desk">
+    <RoleShell role="FRONT_DESK">
       {children}
     </RoleShell>
   );

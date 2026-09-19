@@ -6,7 +6,7 @@ export default function MemberLayout({
   children: React.ReactNode;
 }) {
   return (
-    <RoleShell role="MEMBER" activeHref="/member">
+    <RoleShell role="MEMBER">
       {children}
     </RoleShell>
   );

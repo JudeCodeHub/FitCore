@@ -227,6 +227,19 @@ export class AuthService {
     return { message: 'Logged out' };
   }
 
+  async getProfile(userId: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      throw new UnauthorizedException('User no longer exists');
+    }
+    return {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+    };
+  }
+
   async inviteStaff(dto: InviteStaffDto, invitedBy: string) {
     const existingUser = await this.prisma.user.findUnique({
       where: { email: dto.email },

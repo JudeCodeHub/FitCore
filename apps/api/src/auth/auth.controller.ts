@@ -75,7 +75,7 @@ export class AuthController {
   @Get('me')
   @UseGuards(JwtAuthGuard)
   me(@CurrentUser() user: RequestUser) {
-    return user;
+    return this.authService.getProfile(user.sub);
   }
 
   @Get('sessions')

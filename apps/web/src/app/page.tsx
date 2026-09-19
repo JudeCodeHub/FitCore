@@ -1,3 +1,5 @@
+"use client";
+
 import { AppShell } from "@/components/layout/app-shell";
 import { StatusBadge } from "@/components/status-badge";
 import {
@@ -7,10 +9,15 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { useAuth } from "@/shared/auth/auth-context";
+import { RequireAuth } from "@/shared/auth/require-auth";
 
-export default function Home() {
+function Dashboard() {
+  const { user } = useAuth();
+  if (!user) return null;
+
   return (
-    <AppShell role="ADMIN" userName="Demo Admin" activeHref="/admin">
+    <AppShell role={user.role} userName={user.name} activeHref="/">
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <Card>
           <CardHeader>
@@ -47,5 +54,13 @@ export default function Home() {
         </Card>
       </div>
     </AppShell>
+  );
+}
+
+export default function Home() {
+  return (
+    <RequireAuth>
+      <Dashboard />
+    </RequireAuth>
   );
 }
